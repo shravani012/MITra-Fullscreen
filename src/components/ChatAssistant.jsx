@@ -477,9 +477,7 @@ const FullScreenChat = () => {
         <div className="input-area-full"> 
           <div className="input-toolbar">
             <div className="toolbar-group">
-              <button className={`mode-button ${mode === 'conceptual' ? 'active' : ''}`} onClick={() => setMode('conceptual')}>Conceptual</button>
-              <button className={`mode-button ${mode === 'step by step' ? 'active' : ''}`} onClick={() => setMode('step by step')}>Step by Step</button>
-              <button className={`mode-button ${mode === 'optimized' ? 'active' : ''}`} onClick={() => setMode('optimized')}>Optimized</button>
+              
             </div>
           </div>
           
