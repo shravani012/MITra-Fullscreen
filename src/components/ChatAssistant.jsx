@@ -1,28 +1,36 @@
 import React, { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
-// Import SyntaxHighlighter for code formatting (install required: react-syntax-highlighter)
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-// Use a dark blue theme for the code blocks
-import { dracula } from 'react-syntax-highlighter/dist/esm/styles/prism'; 
-import { Send, PlusSquare, Volume2, Copy, MessageSquare, User, Settings, Clock, Trash2, Sun, Moon, Zap, ChevronLeft } from "react-feather";
+import { Send, PlusSquare, Volume2, Copy, MessageSquare, User, Settings, Clock, Trash2, Sun, Moon } from "react-feather";
 
 // Corrected relative imports for assets
-import whiteLogo from '../assets/white.png'; 
+import whiteLogo from '../assets/white.png';
 import blackLogo from '../assets/black.png';
 
 // Ensure this matches the name of your CSS file
-import './ChatAssistant.css'; 
+import './ChatAssistant.css';
 
-// --- Utility Function for Robust Streaming (Kept for API functionality) ---
+// --- Utility Function for Robust Streaming ---
+
+/**
+ * Safely parses a single line of streaming text data (SSE format).
+ * @param {string} line - A single line from the raw stream buffer.
+ * @returns {{json: object | null, done: boolean}} - The parsed JSON chunk or null, and a flag indicating stream completion.
+ */
 const parseStreamingLine = (line) => {
     const trimmedLine = line.trim();
-    if (trimmedLine === 'data: [DONE]') { return { json: null, done: true }; }
+
+    if (trimmedLine === 'data: [DONE]') {
+        return { json: null, done: true };
+    }
+
     if (trimmedLine.startsWith('data: ')) {
         const jsonString = trimmedLine.substring(6);
         try {
             const json = JSON.parse(jsonString);
             return { json, done: false };
         } catch (e) {
+            // This case handles malformed JSON which shouldn't happen with single lines, 
+            // but is a good safeguard.
             console.warn("Could not parse JSON from streaming line:", jsonString, e);
             return { json: null, done: false };
         }
@@ -30,26 +38,29 @@ const parseStreamingLine = (line) => {
     return { json: null, done: false };
 };
 
-// --- System Prompt (Unified Mode) ---
-const getSystemPrompt = () => `You are AlgoMITra, an AI tutor. You are optimized to provide clear, comprehensive, and runnable solutions.
+
+// --- Component Fragments ---
+
+const getSystemPrompt = (mode) => `You are AlgoMITra, an AI tutor. Your behavior depends on the user's CURRENT message.
+// Modes: 'conceptual', 'step by step', 'optimized'.
+
 // CORE DIRECTIVE: You are strictly an AI tutor for algorithms, data structures, and programming concepts.
 // If the user's message is NOT technical (e.g., about history, cooking, weather, or current events),
 // you MUST politely decline and ask them to keep the topic focused on technical subjects.
 // Example decline: "I'm only trained to help with algorithms and programming. Please ask a technical question!"
 
-// When a technical problem is presented, you MUST follow this unified structure:
-// 1. Briefly explain the **Conceptual Logic** (e.g., using a stack for parentheses).
-// 2. Provide the **Complete, Runnable Code Solution** immediately, wrapped in a markdown code block.
+// You must analyze the user's request:
+// 1. If the user asks for a new problem/solution (e.g., "Write a Python function to check for balanced parentheses"), provide the solution in the currently selected mode:
+//    - Conceptual: Give a high-level explanation of the logic.
+//    - Step by Step: Give the complete, final code/solution immediately. **DO NOT provide hints (Hint 1, Hint 2, etc.).**
+//    - Optimized: Give a single, highly efficient code solution.
+// 2. If the user uses a control phrase ("I will try to solve it", "Give me another hint", "Give me the final solution"), treat it as a new question or politely explain the tutor provides full solutions in this mode.
 
-**General Style:** Always be encouraging and direct.`;
+**General Style:** Always be encouraging and direct. Do not mention the mode unless giving the final answer.`;
 
-
-// --- Component Fragments ---
-
-const PageTabs = ({ onNewChat, view, setView, isSidebarOpen, setIsSidebarOpen }) => {
+const PageTabs = ({ onNewChat, view, setView }) => {
   return (
     <div className="chat-tabs">
-        <button onClick={() => setIsSidebarOpen(false)} className="tab-button sidebar-toggle" title="Collapse Sidebar"><ChevronLeft size={20} /></button>
       <button onClick={onNewChat} className="tab-button" title="New Chat"><PlusSquare size={20} /></button>
       <button onClick={() => setView('history')} className={`tab-button ${view === 'history' ? 'active' : ''}`} title="History"><Clock size={20} /></button>
       <div className="tab-spacer"></div>
@@ -58,20 +69,19 @@ const PageTabs = ({ onNewChat, view, setView, isSidebarOpen, setIsSidebarOpen })
   );
 };
 
-// Updated Toggle to use a 'blue-dark' theme
 const DarkModeToggle = ({ darkMode, setDarkMode }) => {
   return (
     <div className="dark-mode-toggle-container" title="Toggle Dark Mode">
-      <Sun size={18} className="icon-light" /> 
+      <Sun size={18} className="icon-light" />
       <label className="toggle-switch">
-        <input 
-          type="checkbox" 
-          checked={darkMode} 
-          onChange={(e) => setDarkMode(e.target.checked)} 
+        <input
+          type="checkbox"
+          checked={darkMode}
+          onChange={(e) => setDarkMode(e.target.checked)}
         />
         <span className="slider round"></span>
       </label>
-      <Moon size={18} className="icon-dark" /> 
+      <Moon size={18} className="icon-dark" />
     </div>
   );
 };
@@ -96,28 +106,18 @@ const groupChatsByDate = (chats) => {
   return groups;
 };
 
-// Suggested prompts for the welcome screen
-const SUGGESTED_PROMPTS = [
-    "Write a Python function for a dynamic array.",
-    "Explain the concept of Big O Notation.",
-    "Solve the 'Maximum Subarray' problem in C++.",
-    "Show a step-by-step example of Merge Sort.",
-];
-
 
 // --- Main FullScreenChat Component ---
 
 const FullScreenChat = () => {
-  const [darkMode, setDarkMode] = useState(true); 
+  const [darkMode, setDarkMode] = useState(true);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  // Removed mode state
+  const [mode, setMode] = useState('step by step');
   const [view, setView] = useState('chat');
   const [chatHistory, setChatHistory] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true); // New state for sidebar toggle
-
   
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -151,7 +151,6 @@ const FullScreenChat = () => {
   
   useEffect(() => {
     localStorage.setItem('algoMitraDarkMode', JSON.stringify(darkMode));
-    document.body.className = darkMode ? 'blue-dark-mode' : 'light-mode';
   }, [darkMode]);
 
   useEffect(() => {
@@ -163,14 +162,7 @@ const FullScreenChat = () => {
   useEffect(() => { 
     if (inputRef.current) { 
       inputRef.current.style.height = 'auto'; 
-      // Limit height to max 5 rows before scrolling
-      const maxHeight = parseInt(getComputedStyle(inputRef.current).lineHeight) * 5;
-      if (inputRef.current.scrollHeight < maxHeight) {
-        inputRef.current.style.height = `${inputRef.current.scrollHeight}px`;
-      } else {
-        inputRef.current.style.height = `${maxHeight}px`;
-        inputRef.current.style.overflowY = 'auto';
-      }
+      inputRef.current.style.height = `${inputRef.current.scrollHeight}px`; 
     } 
   }, [input]);
 
@@ -179,26 +171,32 @@ const FullScreenChat = () => {
   const executeApiCall = async (userMessage) => {
     setLoading(true);
     let currentChatId = activeChatId;
-    
-    // Fix ReferenceError by using import.meta.env (assuming Vite)
-    const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY; 
+    let updatedHistory;
+
+    const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
 
     if (!GROQ_API_KEY) {
-      // ... (API Key error handling remains the same)
-      const errorText = "**Configuration Error**\n\nAPI key is missing. Please set VITE_GROQ_API_KEY in your .env file and restart the server.";
+      const errorText = "**Configuration Error**\n\nAPI key is missing. Please set VITE_GROQ_API_KEY in your .env file and restart the server.";
       const errorMsg = { from: "bot", text: errorText };
       
       if (!currentChatId) {
-        currentChatId = `chat_${Date.now()}`;
-        setActiveChatId(currentChatId);
-        setChatHistory([{ id: currentChatId, title: "Error", timestamp: Date.now(), messages: [userMessage, errorMsg] }, ...chatHistory]);
-      } else {
-        setChatHistory(prev => prev.map(chat =>
-          chat.id === currentChatId
-            ? { ...chat, messages: [...chat.messages, userMessage, errorMsg] }
-            : chat
-        ));
-      }
+      currentChatId = `chat_${Date.now()}`;
+      setActiveChatId(currentChatId);
+      const newChat = {
+        id: currentChatId,
+        title: userMessage.text.substring(0, 35) + (userMessage.text.length > 35 ? '...' : ''),
+        timestamp: Date.now(),
+        messages: [userMessage, { from: "bot", text: "" }], // Bot placeholder for streaming
+      };
+      updatedHistory = [newChat, ...chatHistory];
+    } else {
+      updatedHistory = chatHistory.map(chat =>
+        chat.id === currentChatId
+          ? { ...chat, messages: [...chat.messages, userMessage, { from: "bot", text: "" }] }
+          : chat
+      );
+    }
+    setChatHistory(updatedHistory);
       setLoading(false);
       return;
     }
@@ -213,24 +211,23 @@ const FullScreenChat = () => {
         timestamp: Date.now(),
         messages: [userMessage, { from: "bot", text: "" }], // Bot placeholder for streaming
       };
-      setChatHistory(prev => [newChat, ...prev]);
+      updatedHistory = [newChat, ...chatHistory];
     } else {
-      setChatHistory(prev => prev.map(chat =>
+      updatedHistory = chatHistory.map(chat =>
         chat.id === currentChatId
           ? { ...chat, messages: [...chat.messages, userMessage, { from: "bot", text: "" }] }
           : chat
-      ));
+      );
     }
-
-    // Get the updated messages array from the newly set state (using functional update, so we need to derive the recent messages)
-    // NOTE: This is complex with setChatHistory being async. A simpler approach is to rebuild the message list locally:
-    let tempMessages = messages.length > 0 ? [...messages, userMessage, { from: "bot", text: "" }] : [userMessage, { from: "bot", text: "" }];
-    
-    // Get up to the last 10 messages for context
-    const recentMessages = tempMessages.slice(-10, -1) || [];
+    setChatHistory(updatedHistory);
+    
+    // Get up to the last 10 messages for context
+    const activeChatMessages = updatedHistory.find(chat => chat.id === currentChatId)?.messages;
+    // Slice(-10, -1) takes the last 9 messages before the current user message
+    const recentMessages = activeChatMessages?.slice(-10, -1) || []; 
 
     const formattedHistory = [
-        { role: 'system', content: getSystemPrompt() }, // No mode passed!
+        { role: 'system', content: getSystemPrompt(mode) },
         ...recentMessages.map(msg => ({ role: msg.from === 'user' ? 'user' : 'assistant', content: msg.text }))
     ];
 
@@ -248,27 +245,39 @@ const FullScreenChat = () => {
       
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let streamBuffer = '';
+      let streamBuffer = ''; // Crucial: Buffer for incomplete Server-Sent Events (SSE) lines
       let doneReading = false;
       
       while (!doneReading) {
         const { done, value } = await reader.read();
-        if (done) { doneReading = true; break; }
+        if (done) {
+            doneReading = true;
+            break; 
+        }
 
+        // Append the new chunk to the buffer
         streamBuffer += decoder.decode(value, { stream: true });
+
+        // Process the buffer line by line
         const lines = streamBuffer.split('\n');
+        // Keep the potentially incomplete last line in the buffer for the next read
         streamBuffer = lines.pop(); 
 
         for (const line of lines) {
-            if (line.trim() === '') continue; 
-            const { json, done } = parseStreamingLine(line);
+            if (line.trim() === '') continue; // Skip empty lines
+
+            const { json, done } = parseStreamingLine(line); // Uses the utility function
             
-            if (done) { doneReading = true; break; }
+            if (done) {
+                doneReading = true;
+                break; // Exit the for loop
+            }
 
             if (json) {
                 const content = json.choices?.[0]?.delta?.content;
 
                 if (content) {
+                    // Use functional update to ensure we are operating on the latest state
                     setChatHistory(prev => prev.map(chat => {
                         if (chat.id === currentChatId) {
                             const newMessages = [...chat.messages];
@@ -282,9 +291,9 @@ const FullScreenChat = () => {
                 }
             }
         }
-        if (doneReading) break; 
+        if (doneReading) break; // Exit the while loop if done was set inside the for loop
       }
-    } catch (error) { 
+    } catch (error) {
       console.error("API error", error); 
       const errorText = `**Oops! Something went wrong.**\n\n*Error: ${error.message}*`;
       // Update the last bot message with the error text
@@ -292,6 +301,7 @@ const FullScreenChat = () => {
         if (chat.id === currentChatId) {
           const newMessages = [...chat.messages];
           const lastMessage = newMessages[newMessages.length - 1];
+          // Ensure we don't overwrite any successfully streamed text, just append the error
           const updatedLastMessage = { ...lastMessage, text: lastMessage.text + "\n\n" + errorText };
           newMessages[newMessages.length - 1] = updatedLastMessage;
           return { ...chat, messages: newMessages };
@@ -325,7 +335,6 @@ const FullScreenChat = () => {
   const handleLoadChat = (chatId) => {
     setActiveChatId(chatId);
     setView('chat');
-    setIsSidebarOpen(false); // Close sidebar on mobile/load
   };
   
   const handleDeleteChat = (e, chatId) => {
@@ -334,22 +343,16 @@ const FullScreenChat = () => {
     if (activeChatId === chatId) handleNewChat();
   };
   
-  // --- Render Components ---
+  // --- Render Components (Adapted for Full Screen) ---
   
   const WelcomeScreen = () => (
     <div className="welcome-screen">
       <div className="welcome-header">
         <div className="welcome-logo-wrapper"><img src={darkMode ? whiteLogo : blackLogo} alt="Logo" /></div>
-        <h2>AlgoMITra - Your Coding Assistant</h2>
+        <h2>AlgoMITra</h2>
       </div>
       <p>How can I help you today?</p>
-      <div className="suggested-prompts-container">
-          {SUGGESTED_PROMPTS.map((prompt, index) => (
-              <button key={index} className="suggested-prompt-button" onClick={() => handleSendMessage(prompt)}>
-                  {prompt}
-              </button>
-          ))}
-      </div>
+      
     </div>
   );
 
@@ -400,13 +403,10 @@ const FullScreenChat = () => {
         components={{
           code: ({node, inline, className, children, ...props}) => { 
             const match = /language-(\w+)/.exec(className || ''); 
-            // Use SyntaxHighlighter for code blocks
             return !inline && match ? ( 
-              <div className="code-block-wrapper"> 
-                {/* Removed 'Run' button for simplicity, can be added back if backend exists */}
-                <SyntaxHighlighter style={dracula} language={match[1]} PreTag="div" {...props}>
-                    {String(children).replace(/\n$/, '')}
-                </SyntaxHighlighter>
+              <div style={{position: 'relative'}}> 
+                <button onClick={handleRunCode} className="run-code-button">Run</button> 
+                <pre className={className} {...props}>{String(children).replace(/\n$/, '')}</pre> 
                 {output && <pre className="code-output">{output}</pre>} 
               </div> 
             ) : ( 
@@ -429,8 +429,8 @@ const FullScreenChat = () => {
     };
     return ( 
       <div className="message-actions">
-        <button onClick={handleReadAloud} title="Read aloud"><Volume2 size={16} /></button>
-        <button onClick={handleCopy} title={copied ? "Copied!" : "Copy"}>{copied ? "Copied!" : <Copy size={16} />}</button>
+        <button onClick={handleReadAloud} title="Read aloud"><Volume2 size={14} /></button>
+        <button onClick={handleCopy} title={copied ? "Copied!" : "Copy"}>{copied ? "Copied!" : <Copy size={14} />}</button>
       </div> 
     );
   };
@@ -446,12 +446,9 @@ const FullScreenChat = () => {
             messages.map((msg, i) => {
               const prev = messages[i - 1];
               const isGrouped = prev && prev.from === msg.from;
-              // Only show avatar on the first message of a group
-              const showAvatar = !isGrouped; 
-
               return (
                 <div key={i} className={`message-row ${msg.from} ${isGrouped ? 'is-grouped' : ''}`}>
-                  <div className={`avatar-wrapper ${showAvatar ? '' : 'hidden'}`}>
+                  <div className="avatar">
                     {msg.from === 'bot' ? <img src={darkMode ? whiteLogo : blackLogo} alt="Bot"/> : <User size={20}/>}
                   </div>
                   <div className="message-content">
@@ -464,9 +461,7 @@ const FullScreenChat = () => {
           )}
           {loading && (
             <div className="message-row bot is-grouped">
-              <div className="avatar-wrapper">
-                  <img src={darkMode ? whiteLogo : blackLogo} alt="Bot"/>
-              </div>
+              <div className="avatar"><img src={darkMode ? whiteLogo : blackLogo} alt="Bot"/></div>
               <div className="message-content">
                   <div className="message-bubble bot typing-indicator">
                     <span className="dot"></span>
@@ -480,7 +475,16 @@ const FullScreenChat = () => {
         </div>
         
         <div className="input-area-full"> 
+          <div className="input-toolbar">
+            <div className="toolbar-group">
+              <button className={`mode-button ${mode === 'conceptual' ? 'active' : ''}`} onClick={() => setMode('conceptual')}>Conceptual</button>
+              <button className={`mode-button ${mode === 'step by step' ? 'active' : ''}`} onClick={() => setMode('step by step')}>Step by Step</button>
+              <button className={`mode-button ${mode === 'optimized' ? 'active' : ''}`} onClick={() => setMode('optimized')}>Optimized</button>
+            </div>
+          </div>
           
+          {/* Removed Action Buttons (no hint logic) */}
+
           <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(input); }} className="chat-input-form">
             <textarea 
               ref={inputRef} 
@@ -493,49 +497,41 @@ const FullScreenChat = () => {
             />
             <button type="submit" disabled={!input.trim() || loading} className="send-button" title="Send"><Send size={20} /></button>
           </form>
-          <div className="input-footer">
-              <p>AlgoMITra uses Llama 3.1 8B via Groq API. Code may contain bugs.</p>
-          </div>
         </div>
       </>
     );
   };
 
   return (
-    <div className={`full-screen-container ${darkMode ? 'blue-dark-mode' : 'light-mode'} ${isSidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
-      
-      {/* Sidebar with Toggle */}
+    <div className={`full-screen-container ${darkMode ? 'dark-mode' : 'light-mode'}`}>
       <div className="full-screen-sidebar">
         <div className="sidebar-header">
           <img src={darkMode ? whiteLogo : blackLogo} alt="Logo" style={{ width: '30px', height: '30px' }}/>
           <h1>AlgoMITra</h1>
         </div>
         
+        {/* Sidebar content container (PageTabs, HistoryScreen) */}
         <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflowY: view === 'history' ? 'hidden' : 'auto' }}>
-            <PageTabs 
-                onNewChat={handleNewChat} 
-                view={view} 
-                setView={setView} 
-                isSidebarOpen={isSidebarOpen}
-                setIsSidebarOpen={setIsSidebarOpen}
-            />
+            <PageTabs onNewChat={handleNewChat} view={view} setView={setView} />
             {view === 'history' && <HistoryScreen />}
         </div>
         
+        {/* Dark Mode Toggle fixed at the bottom */}
         <DarkModeToggle darkMode={darkMode} setDarkMode={setDarkMode} />
-      </div>
 
-      {/* Main Content */}
+      </div>
       <div className="full-screen-main-content">
         <div className="full-screen-header">
-            <button className="sidebar-open-btn" onClick={() => setIsSidebarOpen(true)} title="Open Sidebar">
-                <Zap size={20}/>
-            </button>
           <div className="header-title">
             <img src={darkMode ? whiteLogo : blackLogo} alt="Logo" style={{ width: '25px', height: '25px', marginRight: '8px' }}/>
             <span>MITra Chat</span>
           </div>
-            {/* Removed mode indicator */}
+          {/* Render a placeholder for chat title/mode if in chat view */}
+          {view === 'chat' && (
+              <div className="header-info">
+                  <span className={`chat-mode-indicator ${mode.replace(/\s/g, '-')}`}>{mode.toUpperCase()}</span>
+              </div>
+          )}
         </div>
         {view === 'chat' ? renderChatContent() : null}
       </div>
