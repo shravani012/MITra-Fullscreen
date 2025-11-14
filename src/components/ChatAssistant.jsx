@@ -1,9 +1,14 @@
 import React, { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
-import { Send, PlusSquare, Volume2, Copy, MessageSquare, User, Settings, Clock, Trash2, Sun, Moon } from "react-feather";
+import { Send, PlusSquare, Volume2, Copy, MessageSquare, User, Settings, Clock, Trash2 } from "react-feather";
 
 // Ensure this matches the name of your CSS file
 import './ChatAssistant.css';
+
+// Import the logo image
+import mitraLogo from './mitra.png';
+// Line 448 (approximately)
+<img src={mitraLogo} alt="MITra Logo" style={{height: '75px', width: '100px'}} /> // Assuming the image is named mitra-logo.png and is in the same directory
 
 // --- Utility Function for Robust Streaming ---
 
@@ -65,23 +70,6 @@ const PageTabs = ({ onNewChat, view, setView }) => {
 	);
 };
 
-const DarkModeToggle = ({ darkMode, setDarkMode }) => {
-	return (
-		<div className="dark-mode-toggle-container" title="Toggle Dark Mode">
-			<Sun size={18} className="icon-light" />
-			<label className="toggle-switch">
-				<input
-					type="checkbox"
-					checked={darkMode}
-					onChange={(e) => setDarkMode(e.target.checked)}
-				/>
-				<span className="slider round"></span>
-			</label>
-			<Moon size={18} className="icon-dark" />
-		</div>
-	);
-};
-
 
 const groupChatsByDate = (chats) => {
 	const groups = { Today: [], Yesterday: [], 'Previous 7 Days': [], 'Older': [] };
@@ -106,7 +94,6 @@ const groupChatsByDate = (chats) => {
 // --- Main FullScreenChat Component ---
 
 const FullScreenChat = () => {
-	const [darkMode, setDarkMode] = useState(true);
 	const [messages, setMessages] = useState([]);
 	const [input, setInput] = useState("");
 	const [loading, setLoading] = useState(false);
@@ -131,12 +118,7 @@ const FullScreenChat = () => {
 			if (validChats.length > 0) {
 				setActiveChatId(validChats[0].id);
 			}
-			const savedDarkMode = localStorage.getItem('algoMitraDarkMode');
-			if (savedDarkMode !== null) {
-				setDarkMode(JSON.parse(savedDarkMode));
-			}
-
-		} catch (error) { console.error("Failed to parse chat history or dark mode from localStorage", error); }
+		} catch (error) { console.error("Failed to parse chat history from localStorage", error); }
 	}, []);
 
 	useEffect(() => {
@@ -145,10 +127,6 @@ const FullScreenChat = () => {
 		}
 	}, [chatHistory]);
 	
-	useEffect(() => {
-		localStorage.setItem('algoMitraDarkMode', JSON.stringify(darkMode));
-	}, [darkMode]);
-
 	useEffect(() => {
 		const activeChat = chatHistory.find(chat => chat.id === activeChatId);
 		setMessages(activeChat ? activeChat.messages : []);
@@ -344,7 +322,9 @@ const FullScreenChat = () => {
 	const WelcomeScreen = () => (
 		<div className="welcome-screen">
 			<div className="welcome-header">
-				<div className="welcome-logo-wrapper"><span style={{ fontSize: '50px', lineHeight: '1', display: 'inline-block' }}>&lt; /&gt;</span></div> {/* Literal < /> as logo */}
+				<div className="welcome-logo-wrapper">
+					<img src={mitraLogo} alt="MITra Logo" className="welcome-logo" style={{width: '130px', height: '80px'}} /> 
+				</div>
 				<h2>MITra</h2>
 			</div>
 			<p>How can I help you today?</p>
@@ -498,32 +478,24 @@ const FullScreenChat = () => {
 	};
 
 	return (
-		<div className={`full-screen-container ${darkMode ? 'dark-mode' : 'light-mode'}`}>
+		<div className="full-screen-container dark-mode">
 			<div className="full-screen-sidebar">
 				<div className="sidebar-header">
-					{/* Literal < /> as logo */}
-					<span style={{ fontSize: '30px', lineHeight: '1', marginRight: '8px', display: 'inline-block' }}>&lt; /&gt;</span>
-					<h1>MITra</h1>
+					<img src={mitraLogo} alt="MITra Logo" style={{height: '30px', marginRight: '8px'}} /> 
+					<h1>MITra</h1> 
 				</div>
 				
-				{/* Sidebar content container (PageTabs, HistoryScreen) */}
 				<div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflowY: view === 'history' ? 'hidden' : 'auto' }}>
 						<PageTabs onNewChat={handleNewChat} view={view} setView={setView} />
 						{view === 'history' && <HistoryScreen />}
 				</div>
-				
-				{/* Dark Mode Toggle fixed at the bottom */}
-				<DarkModeToggle darkMode={darkMode} setDarkMode={setDarkMode} />
-
 			</div>
 			<div className="full-screen-main-content">
 				<div className="full-screen-header">
 					<div className="header-title">
-						{/* Literal < /> as logo */}
-						<span style={{ fontSize: '25px', lineHeight: '1', marginRight: '8px', display: 'inline-block' }}>&lt; /&gt;</span>
-						<span>MITra</span>
+						<img src={mitraLogo} alt="MITra Logo" style={{height: '35px', marginRight: '8px'}} />
+						<span>MITra Chat</span>
 					</div>
-					{/* Render a placeholder for chat title/mode if in chat view */}
 					{view === 'chat' && (
 							<div className="header-info">
 								<span className={`chat-mode-indicator ${mode.replace(/\s/g, '-')}`}>{mode.toUpperCase()}</span>
