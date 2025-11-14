@@ -521,7 +521,7 @@ const FullScreenChat = () => {
 					<div className="header-title">
 						{/* Literal < /> as logo */}
 						<span style={{ fontSize: '25px', lineHeight: '1', marginRight: '8px', display: 'inline-block' }}>&lt; /&gt;</span>
-						<span>MITra Chat</span>
+						<span>MITra</span>
 					</div>
 					{/* Render a placeholder for chat title/mode if in chat view */}
 					{view === 'chat' && (
